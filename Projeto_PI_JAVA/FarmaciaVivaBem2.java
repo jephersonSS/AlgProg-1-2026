@@ -1,4 +1,14 @@
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
 import java.util.Locale;
+import java.util.Properties;
 import java.util.Scanner;
 
 public class FarmaciaVivaBem2 {
@@ -41,6 +51,9 @@ public class FarmaciaVivaBem2 {
     static final Scanner scanner = new Scanner(System.in);
     static final Locale BR = Locale.forLanguageTag("pt-BR");
 
+    // O arquivo de dados fica na mesma pasta do JAR (ou das classes).
+    static final Path ARQUIVO_DADOS = localizarArquivoDados();
+
     // ================================================
     // 2. INICIALIZACAO
     // ================================================
@@ -49,8 +62,9 @@ public class FarmaciaVivaBem2 {
         totalProdutos = 0;
         perfilAcesso = 0;
 
-        mesAtual = 10;
-        anoAtual = 2026;
+        LocalDate hoje = LocalDate.now();
+        mesAtual = hoje.getMonthValue();
+        anoAtual = hoje.getYear();
 
         nomesCategorias[0] = "Medicamento Isento";
         nomesCategorias[1] = "Medicamento Generico";
@@ -78,8 +92,10 @@ public class FarmaciaVivaBem2 {
 
     public static void main(String[] args) {
         inicializar();
+        carregarDados();
         login();
         menuPrincipal();
+        salvarDados();
         System.out.println("Sistema encerrado.");
     }
 
@@ -268,6 +284,7 @@ public class FarmaciaVivaBem2 {
             System.out.println("Identificador: " + codigos[i] + lotes[i]);
             System.out.println("Preco sugerido: R$ " + moeda(vendas[i]));
             System.out.println("Estado: " + estados[i]);
+            salvarDados();
         }
     }
 
@@ -358,6 +375,7 @@ public class FarmaciaVivaBem2 {
 
             if (qtdMov > 0) {
                 quantidades[i] += qtdMov;
+                salvarDados();
                 System.out.println("Entrada registrada.");
             } else {
                 System.out.println("Quantidade invalida.");
@@ -379,6 +397,7 @@ public class FarmaciaVivaBem2 {
 
             } else {
                 quantidades[i] -= qtdMov;
+                salvarDados();
                 System.out.println("Baixa registrada.");
             }
 
@@ -521,6 +540,7 @@ public class FarmaciaVivaBem2 {
                     taxaCartao,
                     margens[i]);
         }
+        salvarDados();
     }
 
     // ================================================
@@ -535,6 +555,123 @@ public class FarmaciaVivaBem2 {
         double valorMargem = custo * margem / 100;
 
         return custo + valorSimples + valorIcms + valorCartao + valorMargem;
+    }
+
+    // ================================================
+    // PERSISTENCIA: SALVAR E CARREGAR DADOS
+    // ================================================
+
+    static Path localizarArquivoDados() {
+        try {
+            Path caminhoPrograma = Paths.get(FarmaciaVivaBem2.class
+                    .getProtectionDomain().getCodeSource().getLocation().toURI());
+            Path pastaPrograma = Files.isDirectory(caminhoPrograma)
+                    ? caminhoPrograma : caminhoPrograma.getParent();
+            return pastaPrograma.resolve("dados_farmacia.properties");
+        } catch (Exception e) {
+            // Plano alternativo: pasta pessoal do usuario.
+            return Paths.get(System.getProperty("user.home"), "dados_farmacia.properties");
+        }
+    }
+
+    static void salvarDados() {
+        Properties dados = new Properties();
+        dados.setProperty("versao", "1");
+        dados.setProperty("totalProdutos", String.valueOf(totalProdutos));
+        dados.setProperty("taxaCartao", String.valueOf(taxaCartao));
+
+        for (int j = 0; j < NUM_CATEGORIAS; j++) {
+            dados.setProperty("taxasSimples." + j, String.valueOf(taxasSimples[j]));
+            dados.setProperty("taxasIcms." + j, String.valueOf(taxasIcms[j]));
+        }
+
+        for (int i = 0; i < totalProdutos; i++) {
+            String chave = "produto." + i + ".";
+            dados.setProperty(chave + "nome", nomes[i]);
+            dados.setProperty(chave + "lote", lotes[i]);
+            dados.setProperty(chave + "codigo", codigos[i]);
+            dados.setProperty(chave + "codigoBarras", codigosBarras[i]);
+            dados.setProperty(chave + "categoria", String.valueOf(categorias[i]));
+            dados.setProperty(chave + "quantidade", String.valueOf(quantidades[i]));
+            dados.setProperty(chave + "validadeMes", String.valueOf(validadesMes[i]));
+            dados.setProperty(chave + "validadeAno", String.valueOf(validadesAno[i]));
+            dados.setProperty(chave + "custo", String.valueOf(custos[i]));
+            dados.setProperty(chave + "venda", String.valueOf(vendas[i]));
+            dados.setProperty(chave + "margem", String.valueOf(margens[i]));
+        }
+
+        Path temporario = ARQUIVO_DADOS.resolveSibling("dados_farmacia.tmp");
+        try {
+            Files.createDirectories(ARQUIVO_DADOS.getParent());
+            try (OutputStream saida = Files.newOutputStream(temporario)) {
+                dados.store(saida, "Farmacia Viva Bem - estoque e configuracoes");
+            }
+            // Evita deixar o arquivo principal incompleto se a gravacao falhar.
+            try {
+                Files.move(temporario, ARQUIVO_DADOS,
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temporario, ARQUIVO_DADOS,
+                        StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            System.err.println("ERRO: nao foi possivel salvar os dados!");
+            System.err.println("Arquivo: " + ARQUIVO_DADOS.toAbsolutePath());
+            System.err.println("Detalhe: " + e.getMessage());
+        }
+    }
+
+    static void carregarDados() {
+        if (!Files.exists(ARQUIVO_DADOS)) {
+            System.out.println("Nenhum arquivo de dados encontrado. Estoque inicial vazio.");
+            return;
+        }
+
+        Properties dados = new Properties();
+        try (InputStream entrada = Files.newInputStream(ARQUIVO_DADOS)) {
+            dados.load(entrada);
+            int totalSalvo = Integer.parseInt(dados.getProperty("totalProdutos", "0"));
+            if (totalSalvo < 0 || totalSalvo > MAX_PRODUTOS) {
+                throw new IllegalArgumentException("Quantidade de produtos fora do limite.");
+            }
+
+            taxaCartao = Double.parseDouble(dados.getProperty(
+                    "taxaCartao", String.valueOf(taxaCartao)));
+            for (int j = 0; j < NUM_CATEGORIAS; j++) {
+                taxasSimples[j] = Double.parseDouble(dados.getProperty(
+                        "taxasSimples." + j, String.valueOf(taxasSimples[j])));
+                taxasIcms[j] = Double.parseDouble(dados.getProperty(
+                        "taxasIcms." + j, String.valueOf(taxasIcms[j])));
+            }
+
+            for (int i = 0; i < totalSalvo; i++) {
+                String chave = "produto." + i + ".";
+                nomes[i] = dados.getProperty(chave + "nome");
+                lotes[i] = dados.getProperty(chave + "lote");
+                codigos[i] = dados.getProperty(chave + "codigo");
+                codigosBarras[i] = dados.getProperty(chave + "codigoBarras");
+                categorias[i] = Integer.parseInt(dados.getProperty(chave + "categoria"));
+                quantidades[i] = Integer.parseInt(dados.getProperty(chave + "quantidade"));
+                validadesMes[i] = Integer.parseInt(dados.getProperty(chave + "validadeMes"));
+                validadesAno[i] = Integer.parseInt(dados.getProperty(chave + "validadeAno"));
+                custos[i] = Double.parseDouble(dados.getProperty(chave + "custo"));
+                vendas[i] = Double.parseDouble(dados.getProperty(chave + "venda"));
+                margens[i] = Double.parseDouble(dados.getProperty(chave + "margem"));
+                if (nomes[i] == null || lotes[i] == null || codigos[i] == null
+                        || codigosBarras[i] == null || categorias[i] < 1
+                        || categorias[i] > NUM_CATEGORIAS || quantidades[i] < 0) {
+                    throw new IllegalArgumentException("Produto salvo invalido: " + i);
+                }
+                estados[i] = calcularEstado(i);
+            }
+            totalProdutos = totalSalvo;
+            System.out.println("Dados recuperados: " + totalProdutos + " produto(s).");
+        } catch (IOException | RuntimeException e) {
+            // Nao inicia com estoque vazio: isso poderia sobrescrever dados antigos.
+            System.err.println("ERRO ao abrir dados_farmacia.properties: " + e.getMessage());
+            throw new IllegalStateException("Dados nao carregados. Verifique ou restaure o arquivo antes de continuar.", e);
+        }
     }
 
     // ================================================
