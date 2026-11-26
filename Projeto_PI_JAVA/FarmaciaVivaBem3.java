@@ -10,6 +10,7 @@ public class FarmaciaVivaBem3 {
     // ================================================
 
     static final int MAX_PRODUTOS = 50;
+    static final int MAX_QUANTIDADE = 1000000;
     static final int NUM_CATEGORIAS = 4;
 
     // Dados dos produtos
@@ -210,14 +211,15 @@ public class FarmaciaVivaBem3 {
         int tempCat = lerInteiro("Escolha a categoria:");
 
         // Verifica se o codigo e o lote ja existem.
-        // Tambem impede o uso repetido do codigo de barras.
+        // Permite o mesmo codigo de barras em lotes diferentes do mesmo produto.
         boolean duplicado = false;
 
         for (int j = 0; j < totalProdutos; j++) {
             if (codigos[j].equals(tempCodigo) && lotes[j].equals(tempLote)) {
                 duplicado = true;
             }
-            if (codigosBarras[j].equals(tempBarras)) {
+            if (codigosBarras[j].equals(tempBarras)
+                    && !codigos[j].equals(tempCodigo)) {
                 duplicado = true;
             }
         }
@@ -227,13 +229,13 @@ public class FarmaciaVivaBem3 {
                 || tempBarras.isEmpty() || tempLote.isEmpty()) {
             System.out.println("Erro: existem campos vazios.");
 
-        } else if (tempQtd < 0 || tempCusto <= 0) {
+        } else if (tempQtd < 0 || tempQtd > MAX_QUANTIDADE || tempCusto <= 0) {
             System.out.println("Erro: quantidade ou custo invalido.");
 
         } else if (tempMes < 1 || tempMes > 12) {
             System.out.println("Erro: mes de validade invalido.");
 
-        } else if (tempAno < 2000) {
+        } else if (tempAno < 2000 || tempAno > 2150) {
             System.out.println("Erro: ano de validade invalido.");
 
         } else if (tempMargem < 0) {
@@ -362,7 +364,7 @@ public class FarmaciaVivaBem3 {
         } else if (tipoMov == 1 && perfilAcesso == 2) {
             int qtdMov = lerInteiro("Quantidade de entrada:");
 
-            if (qtdMov > 0) {
+            if (qtdMov > 0 && qtdMov <= MAX_QUANTIDADE - quantidades[i]) {
                 quantidades[i] += qtdMov;
                 salvarDados(); // Salva a nova quantidade.
                 System.out.println("Entrada registrada.");
